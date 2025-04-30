@@ -1,0 +1,8 @@
+.DS_Store
+.vscode/
+I24_data/
+output/
+src/cv/output
+src/cv/i24_3d
+src/cv/boundary
+yolov8*.pt
