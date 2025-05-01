@@ -6,3 +6,4 @@ src/cv/output
 src/cv/i24_3d
 src/cv/boundary
 yolov8*.pt
+__pycache__
