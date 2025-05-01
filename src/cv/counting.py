@@ -40,8 +40,9 @@ def setup_io(video: str):
     os.makedirs('output', exist_ok=True)
     base = os.path.splitext(os.path.basename(video))[0]
     out_vid = f'output/{base}_vis.mp4'
+    out_json = f'output/{base}_counts.json'
     writer = cv2.VideoWriter(out_vid, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-    return cap, writer, out_vid, fps
+    return cap, writer, out_vid, out_json, fps
 
 
 def is_between(pt: Point, l1: LineCoeffs, l2: LineCoeffs) -> bool:
@@ -81,7 +82,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('video')
     p.add_argument('-b','--boundary', default=None)
-    p.add_argument('-t','--time', type=float, default=10.0,
+    p.add_argument('-t','--time', type=float, default=60.0,
                    help='total time window in seconds')
     args = p.parse_args()
 
@@ -94,8 +95,8 @@ def main():
     l_right = line_eq(p2, p4)
 
     model = init_detector()
-    cap, writer, out_vid, fps = setup_io(args.video)
-    max_frames = min(1000, int(fps * args.time))
+    cap, writer, out_vid, out_json, fps = setup_io(args.video)
+    max_frames = int(fps * args.time)
 
     prev_up = {}
     prev_down = {}
@@ -136,8 +137,9 @@ def main():
         writer.write(frame)
 
     writer.release()
-    print(json.dumps(time_counts, indent=2))
+    with open(out_json,'w') as f: json.dump({str(k):v for k,v in time_counts.items()},f,indent=2)
     print(f'Saved video → {out_vid}')
+    print(f'Saved counts → {out_json}')
 
 if __name__=='__main__':
     main()
