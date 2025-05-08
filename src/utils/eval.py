@@ -1,3 +1,5 @@
+import os
+import time
 import json
 import argparse
 import numpy as np
@@ -79,7 +81,7 @@ def plot_mae_vs_cell_length(
     Sweep cell_length from 35 to length (step 10), compute MAE, and plot.
     """
     import matplotlib.pyplot as plt
-
+    os.makedirs('output', exist_ok=True)
     cell_lengths = list(range(30, int(length) + 1, 10))
     mae_up_list = []
     mae_down_list = []
@@ -101,8 +103,6 @@ def plot_mae_vs_cell_length(
         mae_down_list.append(m_down)
     
 
-    print("mae_up_list: ", mae_up_list)
-
     # plt.plot(cell_lengths, mae_up_list, label='Upstream MAE', color='blue')
     # plt.plot(cell_lengths, mae_up_list, label='Upstream MAE', color='blue', marker='o')
     plt.plot(cell_lengths, mae_down_list, label='Downstream MAE', color='red', marker='o')
@@ -111,10 +111,40 @@ def plot_mae_vs_cell_length(
     plt.title('MAE vs Cell Length')
     plt.legend()
     plt.grid(True)
+    plt.savefig('output/mae_vs_cell_length.pdf')
+    plt.show()
+
+def plot_runtime_vs_cell_length(
+    up_cum_gt,
+    length, dt, v_f, w, k_j, C, n_lanes
+):
+    import matplotlib.pyplot as plt
+    os.makedirs('output', exist_ok=True)
+    cell_lengths = list(range(35, int(length) + 1, 10))
+    runtimes = []
+    for cl in cell_lengths:
+        start = time.perf_counter()
+        run_ctm(
+            up_cum_gt, length=length, cell_len=cl,
+            dt=dt, v_f=v_f, w=w, k_j=k_j, C=C, n_lanes=n_lanes
+        )
+        end = time.perf_counter()
+        runtimes.append((end - start) * 1_000)
+
+    plt.plot(cell_lengths, runtimes, label='Run time', color='green', marker='x')
+    plt.xlabel('Cell length (m)')
+    plt.ylabel('Computation Time (ms)')
+    plt.title('CTM run time vs Cell Length')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('output/runtime_vs_cell_length.pdf')
     plt.show()
 
 
 # ---------------------------- script entry ----------------------------
+# 118.87
+# 86.34
+# 101.05 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -124,8 +154,8 @@ if __name__ == "__main__":
     parser.add_argument('--dt',        type=float, default=1.0,   help='time step [s]')
     parser.add_argument('--v_f',       type=float, default=110.0,  help='free-flow speed [m/s]')
     parser.add_argument('--w',         type=float, default=55.0,   help='backward wave speed [m/s]')
-    parser.add_argument('--k_j',       type=float, default=0.22,  help='jam density [veh/m/lane]')
-    parser.add_argument('--C',         type=float, default=2.24,  help='capacity [veh/s/lane]')
+    parser.add_argument('--k_j',       type=float, default=0.14,  help='jam density [veh/m/lane]')
+    parser.add_argument('--C',         type=float, default=1.46,  help='capacity [veh/s/lane]')
     parser.add_argument('--n_lanes',   type=int,   default=4,     help='number of lanes')
     args = parser.parse_args()
 
@@ -141,6 +171,10 @@ if __name__ == "__main__":
         C=args.C,
         n_lanes=args.n_lanes,
     )
-
+    plot_runtime_vs_cell_length(
+        up_gt,
+        length=args.length, dt=args.dt, v_f=args.v_f,
+        w=args.w, k_j=args.k_j, C=args.C, n_lanes=args.n_lanes
+    )
 
 
