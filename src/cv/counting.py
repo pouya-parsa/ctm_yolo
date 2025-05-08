@@ -8,7 +8,7 @@ from typing import Tuple, List
 
 Point = Tuple[float, float]
 LineCoeffs = Tuple[float, float, float]
-INITIAL_DOWNSTREAM_OFFSET = 7
+INITIAL_DOWNSTREAM_OFFSET = 5
 
 
 def load_lines(path: str) -> Tuple[Point, Point, Point, Point]:
@@ -86,6 +86,18 @@ def main():
                    help='total time window in seconds')
     args = p.parse_args()
 
+    COUNT_START_SEC = 10.4                      # ---------- new ----------
+    cap, writer, out_vid, out_json, fps = setup_io(args.video)
+    start_frame     = int(fps * COUNT_START_SEC)  # first frame to count
+    max_frames      = int(fps * args.time)
+
+    prev_up   = {}
+    prev_down = {}
+    count_up  = set()
+    count_down = set()
+    time_counts = {}
+    frame_no = 0
+
     bfile = args.boundary or f'boundary/{os.path.splitext(os.path.basename(args.video))[0]}.json'
     p1, p2, p3, p4 = load_lines(bfile)
     # compute line equations
@@ -118,26 +130,39 @@ def main():
             pt = (cx, cy)
             if not is_between(pt, l_left, l_right):
                 continue
-            v_up = l_up[0]*cx + l_up[1]*cy + l_up[2]
-            v_down = l_down[0]*cx + l_down[1]*cy + l_down[2]
-            if vid in prev_up and prev_up[vid] * v_up < 0:
-                count_up.add(vid)
-            if vid in prev_down and prev_down[vid] * v_down < 0:
-                count_down.add(vid)
-            prev_up[vid] = v_up
+
+            v_up   = l_up[0]   * cx + l_up[1]   * cy + l_up[2]
+            v_down = l_down[0] * cx + l_down[1] * cy + l_down[2]
+
+            # --------------------------------------------------------
+            # ➋  Only *record* a count after the warm‑up period
+            # --------------------------------------------------------
+            if frame_no > start_frame:
+                if vid in prev_up   and prev_up[vid]   * v_up   < 0:
+                    count_up.add(vid)
+                if vid in prev_down and prev_down[vid] * v_down < 0:
+                    count_down.add(vid)
+
+            prev_up[vid]   = v_up
             prev_down[vid] = v_down
+
             if is_between(pt, l_up, l_down):
                 boxes.append((vid, (x1, y1, x2, y2), pt))
-        sec = (frame_no - 1) // int(fps) + 1
-        raw_up = len(count_up)
-        raw_down = len(count_down)
-        adj_down = max(raw_down - INITIAL_DOWNSTREAM_OFFSET, 0)
+        sec       = (frame_no - 1) // int(fps) + 1
+        if sec <= COUNT_START_SEC:
+            raw_up, adj_down = 0, 0
+        else:
+            raw_up     = len(count_up)
+            raw_down   = len(count_down)
+            adj_down   = max(raw_down - INITIAL_DOWNSTREAM_OFFSET, 0)
+
         time_counts[sec] = (raw_up, adj_down)
         draw(frame, p1, p2, p3, p4, boxes, raw_up, adj_down)
         writer.write(frame)
 
     writer.release()
-    with open(out_json,'w') as f: json.dump({str(k):v for k,v in time_counts.items()},f,indent=2)
+    with open(out_json, 'w') as f:
+        json.dump({str(k): v for k, v in time_counts.items()}, f, indent=2)
     print(f'Saved video → {out_vid}')
     print(f'Saved counts → {out_json}')
 

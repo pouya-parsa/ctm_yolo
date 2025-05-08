@@ -52,7 +52,8 @@ class CTMLink:
         """Advance one Δt, return (enter_flows, exit_flows) for each cell."""
         out_cap = self.C if outflow_demand is None else min(outflow_demand, self.C)
         S = self.s; R = self.r
-        S_up = min(inflow, self.C); R_down = out_cap
+        S_up = min(inflow, self.C) 
+        R_down = out_cap
         y = np.minimum(S, np.roll(R, -1))
         y[-1] = min(S[-1], R_down)
         y_in = min(S_up, R[0])
@@ -74,6 +75,7 @@ class CTMLink:
     ) -> np.ndarray:
         """Simulate T steps and return array shape (T, n_cells, 2) with enter/exit flows."""
         if isinstance(inflow, Sequence):
+            print("here")
             if len(inflow) != T:
                 raise ValueError("inflow sequence length must equal T")
             inflow_seq = inflow
@@ -81,6 +83,8 @@ class CTMLink:
             inflow_seq = [inflow] * T
         flows = np.zeros((T, self.n_cells, 2))
         for t in range(T):
+            # print("inflow_seq: ", inflow_seq)
+            # print("*" * 10)
             enter_flow, exit_flow = self.step(inflow=inflow_seq[t], outflow_demand=outflow_demand)
             flows[t, :, 0] = enter_flow
             flows[t, :, 1] = exit_flow

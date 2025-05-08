@@ -141,40 +141,135 @@ def plot_runtime_vs_cell_length(
     plt.show()
 
 
+def run_chain(up_cum_gt, link_cfgs):
+    """
+    Simulate a *series* of CTM links.
+    Parameters
+    ----------
+    up_cum_gt : 1‑D np.ndarray
+        cumulative upstream count for *link 1* (vehicles entering the chain)
+    link_cfgs : list[dict]
+        one dict per link, keys matching CTMLink’s constructor
+    Returns
+    -------
+    up_mod  : modelled cumulative count at entry to link‑1
+    down_mod: modelled cumulative count exiting the final link
+    """
+    T              = len(up_cum_gt)
+    inflow_series  = gt_to_inflow(up_cum_gt)          # vehicles entering first link
+    up_flow_first  = None
+
+    for i, cfg in enumerate(link_cfgs):
+        link = CTMLink(**cfg)
+        link.reset()                                  # always reset densities first
+        print("inflow_series: ", len(inflow_series))
+        print("T: ", T)
+        flows   = link.run(T, inflow=inflow_series)   # shape: (T, n_cells, 2)
+        if i == 0:                                    # remember true upstream flow
+            up_flow_first = flows[:, 0, 0]
+        inflow_series = flows[:, -1, 1]               # downstream flow becomes next inflow
+        inflow_series = inflow_series.tolist()
+
+    up_mod   = np.cumsum(up_flow_first)               # cumulative at chain entrance
+    down_mod = np.cumsum(inflow_series)               # cumulative at chain exit
+    return up_mod, down_mod
+
+
+
+def sweep_chain_cell_length(
+    up_gt: np.ndarray,
+    down_gt: np.ndarray,
+    base_link_cfgs: list[dict],
+    min_link_len: int,
+):
+    cell_lengths = list(range(30, min_link_len + 1, 10))
+    mae_down_vec = []
+    runtime_vec  = []
+
+    for cl in cell_lengths:
+        # clone base configs but overwrite cell_length
+        link_cfgs = [
+            {**cfg, "cell_length": cl} for cfg in base_link_cfgs
+        ]
+        start = time.perf_counter()
+        _, down_mod = run_chain(up_gt, link_cfgs)
+        elapsed_ms = (time.perf_counter() - start) * 1_000
+
+        # MAE (downstream only)
+        _, mae_down = compare(up_gt, down_gt, up_gt, down_mod)  # upstream MAE not needed
+        mae_down_vec.append(mae_down)
+        runtime_vec.append(elapsed_ms)
+
+    return cell_lengths, mae_down_vec, runtime_vec
+
 # ---------------------------- script entry ----------------------------
 # 118.87
 # 86.34
 # 101.05 
 
+# --------------- main script ---------------
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('gt_json', help='Ground-truth cumulative counts JSON')
-    parser.add_argument('--length',    type=float, default=118.87, help='link length [m]')
-    # parser.add_argument('--cell_len',  type=float, default=30.0,  help='cell length [m]')
-    parser.add_argument('--dt',        type=float, default=1.0,   help='time step [s]')
-    parser.add_argument('--v_f',       type=float, default=110.0,  help='free-flow speed [m/s]')
-    parser.add_argument('--w',         type=float, default=55.0,   help='backward wave speed [m/s]')
-    parser.add_argument('--k_j',       type=float, default=0.14,  help='jam density [veh/m/lane]')
-    parser.add_argument('--C',         type=float, default=1.46,  help='capacity [veh/s/lane]')
-    parser.add_argument('--n_lanes',   type=int,   default=4,     help='number of lanes')
-    args = parser.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument("link_json", nargs=3, help="GT JSON files for links 1‑3 (order matters)")
+    p.add_argument("--lengths", nargs=3, type=float, required=True, help="link lengths [m]")
+    p.add_argument("--cell_len", type=float, default=30.0)
+    p.add_argument("--dt",       type=float, default=1.0)
+    p.add_argument("--v_f",      type=float, default=30.56)   # 110 km/h
+    p.add_argument("--w",        type=float, default=5.0)
+    p.add_argument("--k_j",      type=float, default=0.14)
+    p.add_argument("--C",        type=float, default=1.46)
+    p.add_argument("--n_lanes",  type=int,   default=4)
+    args = p.parse_args()
 
-    up_gt, down_gt = load_gt(args.gt_json)
-    # optional visualization
-    plot_mae_vs_cell_length(
-        up_gt, down_gt,
-        length=args.length,
-        dt=args.dt,
-        v_f=args.v_f,
-        w=args.w,
-        k_j=args.k_j,
-        C=args.C,
-        n_lanes=args.n_lanes,
+    # ---------- load ground truth ----------
+    up1, _   = load_gt(args.link_json[0])             # use upstream of link‑1 as chain inflow
+    _, dn3   = load_gt(args.link_json[2])             # downstream of link‑3 for MAE
+
+    # ---------- build per‑link config list ----------
+    link_cfgs = [
+        dict(length=args.lengths[0], cell_length=args.cell_len, dt=args.dt,
+             v_f=args.v_f, w=args.w, k_j=args.k_j, C=args.C, n_lanes=args.n_lanes),
+        dict(length=args.lengths[1], cell_length=args.cell_len, dt=args.dt,
+             v_f=args.v_f, w=args.w, k_j=args.k_j, C=args.C, n_lanes=args.n_lanes),
+        dict(length=args.lengths[2], cell_length=args.cell_len, dt=args.dt,
+             v_f=args.v_f, w=args.w, k_j=args.k_j, C=args.C, n_lanes=args.n_lanes),
+    ]
+
+    # # ---------- run the chain ----------
+    # up_mod, down_mod = run_chain(up1, link_cfgs)
+
+    # # ---------- evaluate ----------
+    # mae_up, mae_down = compare(up1, dn3, up_mod, down_mod)
+    # print(f"MAE at chain entrance : {mae_up:7.3f} veh")
+    # print(f"MAE at chain exit     : {mae_down:7.3f} veh")
+
+    min_link_len = int(min(args.lengths))
+    cell_lengths, mae_vec, rt_vec = sweep_chain_cell_length(
+        up_gt=up1,
+        down_gt=dn3,
+        base_link_cfgs=link_cfgs,
+        min_link_len=min_link_len,
     )
-    plot_runtime_vs_cell_length(
-        up_gt,
-        length=args.length, dt=args.dt, v_f=args.v_f,
-        w=args.w, k_j=args.k_j, C=args.C, n_lanes=args.n_lanes
-    )
 
+    import matplotlib.pyplot as plt
+    os.makedirs('output', exist_ok=True)
 
+    # MAE vs Δx
+    plt.figure()
+    plt.plot(cell_lengths, mae_vec, marker='o', color='red')
+    plt.xlabel('Cell length (m)')
+    plt.ylabel('Downstream MAE (veh)')
+    plt.title('MAE vs Cell Length (Three–link chain)')
+    plt.grid(True)
+    plt.savefig('output/mae_vs_cell_length_chain.pdf')
+    plt.show()
+
+    # Runtime vs Δx
+    plt.figure()
+    plt.plot(cell_lengths, rt_vec, marker='x', color='green')
+    plt.xlabel('Cell length (m)')
+    plt.ylabel('Runtime (ms)')
+    plt.title('Runtime vs Cell Length (Three–link chain)')
+    plt.grid(True)
+    plt.savefig('output/runtime_vs_cell_length_chain.pdf')
+    plt.show()
